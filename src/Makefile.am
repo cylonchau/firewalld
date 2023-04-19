@@ -27,9 +27,9 @@ nobase_dist_python_DATA = \
 	firewall/core/fw_ipset.py \
 	firewall/core/fw_nm.py \
 	firewall/core/fw_policies.py \
+	firewall/core/fw_policy.py \
 	firewall/core/fw.py \
 	firewall/core/fw_service.py \
-	firewall/core/fw_test.py \
 	firewall/core/fw_transaction.py \
 	firewall/core/fw_zone.py \
 	firewall/core/helper.py \
@@ -45,6 +45,7 @@ nobase_dist_python_DATA = \
 	firewall/core/io/io_object.py \
 	firewall/core/io/ipset.py \
 	firewall/core/io/lockdown_whitelist.py \
+	firewall/core/io/policy.py \
 	firewall/core/io/service.py \
 	firewall/core/io/zone.py \
 	firewall/core/ipset.py \
@@ -66,6 +67,7 @@ nobase_dist_python_DATA = \
 	firewall/server/config.py \
 	firewall/server/config_service.py \
 	firewall/server/config_zone.py \
+	firewall/server/config_policy.py \
 	firewall/server/decorators.py \
 	firewall/server/firewalld.py \
 	firewall/server/__init__.py \

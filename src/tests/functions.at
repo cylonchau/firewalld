@@ -11,10 +11,7 @@ m4_define([FWD_STOP_FIREWALLD], [
 m4_define([FWD_START_FIREWALLD], [
     FIREWALLD_ARGS="--nofork --nopid --log-file ./firewalld.log --system-config ./"
     dnl if testsuite ran with debug flag, add debug output
-    case "${TESTSUITEFLAGS}" in
-        *-d*|*--debug*) FIREWALLD_ARGS="--debug=2 ${FIREWALLD_ARGS}";;
-        *) :;;
-    esac
+    ${at_debug_p} && FIREWALLD_ARGS="--debug=3 ${FIREWALLD_ARGS}"
     if test "x${FIREWALLD_DEFAULT_CONFIG}" != x ; then
         FIREWALLD_ARGS+=" --default-config ${FIREWALLD_DEFAULT_CONFIG}"
     fi
@@ -37,6 +34,48 @@ m4_define([FWD_START_FIREWALLD], [
     AT_FAIL_IF([test $up -ne 1])
 ])
 
+m4_define([START_NETWORKMANAGER], [
+    AT_SKIP_IF([! NS_CMD([which NetworkManager >/dev/null 2>&1])])
+    AT_SKIP_IF([! NS_CMD([which nmcli >/dev/null 2>&1])])
+
+    AT_DATA([./NetworkManager.conf], [dnl
+[[main]]
+plugins=
+
+[[logging]]
+#level=DEBUG
+#domains=ALL
+])
+
+    NM_ARGS="--no-daemon --config ./NetworkManager.conf"
+    NS_CMD([NetworkManager $NM_ARGS &])
+    if test $? -ne 0; then
+        AT_FAIL_IF([:])
+    fi
+    echo "$!" > networkmanager.pid
+
+    dnl Give it some time for the dbus interface to come up
+    up=0
+    for I in 1 2 3 4 5 6 7 8 9 0; do
+        if NS_CMD([nmcli general status >/dev/null 2>&1]); then
+            up=1
+            break
+        fi
+        sleep 1
+    done
+    AT_FAIL_IF([test $up -ne 1])
+])
+
+m4_define([STOP_NETWORKMANAGER], [
+    pid=$(< networkmanager.pid)
+    kill $pid
+    for I in 1 2 3 4 5 6 7 8 9 0; do
+        ps --pid $pid >/dev/null || { pid=0; break; }
+        sleep 1
+    done
+    test $pid -eq 0 || { kill -9 $pid; sleep 3; }
+])
+
 m4_define([FWD_RELOAD], [
     FWD_CHECK([-q --reload], [$1], [$2], [$3])
     FWD_CHECK([-q --state], [$4], [$5], [$6])
@@ -52,10 +91,10 @@ m4_define([FWD_START_TEST], [
 
     dnl We test some unicode strings and autotest overrides LC_ALL=C, so set it
     dnl again for every test.
-    LC_ALL="C.UTF-8"
-    export LC_ALL
-    LANGUAGE="C.UTF-8"
-    export LANGUAGE
+    if locale -a |grep "^C.utf8" >/dev/null; then
+        LC_ALL="C.UTF-8"
+        export LC_ALL
+    fi
 
     dnl start every test with the default config
     if test "x${FIREWALLD_DEFAULT_CONFIG}" != x ; then
@@ -64,8 +103,12 @@ m4_define([FWD_START_TEST], [
         AT_CHECK([if ! cp /etc/firewalld/firewalld.conf ./firewalld.conf; then exit 77; fi])
     fi
 
-    m4_ifdef([TESTING_FIREWALL_OFFLINE_CMD], [], [
+    m4_ifdef([TESTING_FIREWALL_OFFLINE_CMD], [
+        AT_KEYWORDS(offline)
+    ], [
         m4_define_default([FIREWALL_BACKEND], [nftables])
+
+        AT_KEYWORDS(FIREWALL_BACKEND)
 
         dnl don't unload modules or bother cleaning up, the namespace will be deleted
         AT_CHECK([sed -i 's/^CleanupOnExit.*/CleanupOnExit=no/' ./firewalld.conf])
@@ -76,7 +119,7 @@ m4_define([FWD_START_TEST], [
         dnl fib matching is pretty new in nftables. Don't use rpfilter on older
         dnl kernels.
         m4_if(nftables, FIREWALL_BACKEND, [
-            m4_if(no, HOST_SUPPORTS_NFT_FIB, [
+            IF_HOST_SUPPORTS_NFT_FIB([], [
                 sed -i 's/^IPv6_rpfilter.*/IPv6_rpfilter=no/' ./firewalld.conf
             ])
         ])
@@ -85,15 +128,21 @@ m4_define([FWD_START_TEST], [
         function kill_firewalld() {
             FWD_STOP_FIREWALLD
         }
+        function kill_networkmanager() {
+            if test -f networkmanager.pid; then
+                STOP_NETWORKMANAGER
+            fi
+        }
 
         dnl run cleanup commands on test exit
         echo "" > cleanup
-        trap ". ./cleanup; kill_firewalld" EXIT
+        echo "" > cleanup_late
+        trap ". ./cleanup; kill_firewalld; kill_networkmanager; . ./cleanup_late" EXIT
 
         dnl create a namespace and dbus-daemon
-        m4_define([CURRENT_DBUS_ADDRESS], [unix:abstract=firewalld-testsuite-dbus-system-socket-]RANDOM_NUMBER)
-        m4_define([CURRENT_TEST_NS], [fwd-test-]RANDOM_NUMBER)
-        echo "ip netns delete CURRENT_TEST_NS" >> ./cleanup
+        m4_define([CURRENT_DBUS_ADDRESS], [unix:abstract=firewalld-testsuite-dbus-system-socket-${at_group_normalized}])
+        m4_define([CURRENT_TEST_NS], [fwd-test-${at_group_normalized}])
+        echo "ip netns delete CURRENT_TEST_NS" >> ./cleanup_late
         AT_CHECK([ip netns add CURRENT_TEST_NS])
         AT_DATA([./dbus.conf], [
             <!DOCTYPE busconfig PUBLIC "-//freedesktop//DTD D-Bus Bus Configuration 1.0//EN"
@@ -128,13 +177,53 @@ m4_define([FWD_START_TEST], [
                        send_interface="org.freedesktop.DBus.Properties"/>
                 <allow send_destination="org.fedoraproject.FirewallD1.config"/>
             </policy>
+
+            <!-- from org.freedesktop.NetworkManager.conf -->
+            <policy user="root">
+                    <allow own="org.freedesktop.NetworkManager"/>
+                    <allow send_destination="org.freedesktop.NetworkManager"/>
+
+                    <allow send_destination="org.freedesktop.NetworkManager"
+                           send_interface="org.freedesktop.NetworkManager.PPP"/>
+
+                    <allow send_interface="org.freedesktop.NetworkManager.SecretAgent"/>
+                    <!-- These are there because some broken policies do
+                         <deny send_interface="..." /> (see dbus-daemon(8) for details).
+                         This seems to override that for the known VPN plugins.
+                      -->
+                    <allow send_destination="org.freedesktop.NetworkManager.openconnect"/>
+                    <allow send_destination="org.freedesktop.NetworkManager.openswan"/>
+                    <allow send_destination="org.freedesktop.NetworkManager.openvpn"/>
+                    <allow send_destination="org.freedesktop.NetworkManager.pptp"/>
+                    <allow send_destination="org.freedesktop.NetworkManager.vpnc"/>
+                    <allow send_destination="org.freedesktop.NetworkManager.ssh"/>
+                    <allow send_destination="org.freedesktop.NetworkManager.iodine"/>
+                    <allow send_destination="org.freedesktop.NetworkManager.l2tp"/>
+                    <allow send_destination="org.freedesktop.NetworkManager.libreswan"/>
+                    <allow send_destination="org.freedesktop.NetworkManager.fortisslvpn"/>
+                    <allow send_destination="org.freedesktop.NetworkManager.strongswan"/>
+                    <allow send_interface="org.freedesktop.NetworkManager.VPN.Plugin"/>
+
+                    <allow send_destination="org.fedoraproject.FirewallD1"/>
+
+                    <!-- Allow the custom name for the dnsmasq instance spawned by NM
+                         from the dns dnsmasq plugin to own it's dbus name, and for
+                         messages to be sent to it.
+                     -->
+                    <allow own="org.freedesktop.NetworkManager.dnsmasq"/>
+                    <allow send_destination="org.freedesktop.NetworkManager.dnsmasq"/>
+            </policy>
             </busconfig>
 ])
         DBUS_PID=`NS_CMD([dbus-daemon --address="CURRENT_DBUS_ADDRESS" --print-pid --config-file="./dbus.conf"])`
         if test $? -ne 0; then
             AT_FAIL_IF([:])
         fi
-        echo "kill $DBUS_PID" >> ./cleanup
+        echo "kill $DBUS_PID" >> ./cleanup_late
+
+        IF_HOST_SUPPORTS_NFT_RULE_INDEX([], [
+            AT_CHECK([sed -i 's/^IndividualCalls.*/IndividualCalls=yes/' ./firewalld.conf])
+        ])
 
         FWD_START_FIREWALLD
     ])
@@ -142,17 +231,28 @@ m4_define([FWD_START_TEST], [
 
 m4_define([FWD_END_TEST], [
     m4_ifdef([TESTING_FIREWALL_OFFLINE_CMD], [], [
+        IF_HOST_SUPPORTS_IP6TABLES([], [
+            sed -i "/WARNING: ip6tables not usable, disabling IPv6 firewall/d" ./firewalld.log
+        ])
         if test x"$1" != x"ignore"; then
             if test -n "$1"; then
                 sed -i $1 ./firewalld.log
             fi
-            AT_FAIL_IF([grep ERROR ./firewalld.log])
-            AT_FAIL_IF([grep WARNING ./firewalld.log])
+            AT_FAIL_IF([[grep '^[0-9-]*[ ]\+[0-9:]*[ ]\+\(ERROR\|WARNING\)' ./firewalld.log]])
         fi
         m4_undefine([CURRENT_DBUS_ADDRESS])
         m4_undefine([CURRENT_TEST_NS])
     ])
     AT_CLEANUP
+])
+
+m4_define([FWD_OFFLINE_CHECK], [
+    FIREWALL_OFFLINE_CMD_ARGS="--system-config ./"
+    if test "x${FIREWALLD_DEFAULT_CONFIG}" != x ; then
+        FIREWALL_OFFLINE_CMD_ARGS+=" --default-config ${FIREWALLD_DEFAULT_CONFIG}"
+    fi
+
+    AT_CHECK([firewall-offline-cmd $FIREWALL_OFFLINE_CMD_ARGS $1], [$2], [$3], [$4], [$5], [$6])
 ])
 
 m4_define([FWD_CHECK], [
@@ -190,12 +290,7 @@ m4_define([FWD_CHECK], [
         m4_ifdef([FWD_CHECK_RUN_FIREWALL_OFFLINE_CMD], [
             m4_undefine([FWD_CHECK_RUN_FIREWALL_OFFLINE_CMD])
 
-            FIREWALL_OFFLINE_CMD_ARGS="--system-config ./"
-            if test "x${FIREWALLD_DEFAULT_CONFIG}" != x ; then
-                FIREWALL_OFFLINE_CMD_ARGS+=" --default-config ${FIREWALLD_DEFAULT_CONFIG}"
-            fi
-
-            AT_CHECK([firewall-offline-cmd $FIREWALL_OFFLINE_CMD_ARGS dnl
+            FWD_OFFLINE_CHECK([dnl
                 dnl This m4 mess is all about stripping --permanent
                 dnl flag if it exists, otherwise we pass arg 1 verbatim.
                 m4_if(-1, m4_index([$1], [--permanent]), [$1], [ dnl
@@ -215,7 +310,14 @@ m4_define([FWD_GREP_LOG], [
 m4_define([TRIM], [[sed -e 's/^[ \t]*//' -e 's/[ \t]*$//']])
 m4_define([TRIMV], [[sed -e '/^[ \t]*$/d']])
 m4_define([TRIM_INTERNAL], [[sed -e 's/[ \t]\+/ /g']])
-m4_define([TRIM_WHITESPACE], [TRIM | TRIMV | TRIM_INTERNAL])
+m4_define([CHOMP], [printf "%s" "$(cat /dev/stdin)"])
+m4_define([TRIM_WHITESPACE], [TRIM | TRIMV | TRIM_INTERNAL | { CHOMP; echo; }])
+
+dnl m4sugar's m4_strip has a bug that causes it to print a space after
+dnl newlines. So implement our own suck-less version.
+m4_define([m4_strip],
+[m4_bpatsubsts([$1], [[	 ]+], [ ],
+                     [^ ?\(.*\) ?$], [\1])])
 
 m4_define([NS_CMD], [dnl
     env DBUS_SYSTEM_BUS_ADDRESS="CURRENT_DBUS_ADDRESS" ip netns exec CURRENT_TEST_NS $1 dnl
@@ -225,37 +327,143 @@ m4_define([NS_CHECK], [
     AT_CHECK([NS_CMD([$1])], [$2], [$3], [$4], [$5], [$6])
 ])
 
+dnl implement PIPESTATUS[0] in a portable way
+dnl
+m4_define([PIPESTATUS0], [dnl
+    sh <<-"HERE"
+    { { { { $1; echo $? >&3; } | $2 >&4; } 3>&1; } | { read RC; exit $RC; } } 4>&1
+HERE
+])
+
+m4_define([EBTABLES_LIST_RULES_NORMALIZE], [dnl
+    TRIM_WHITESPACE | dnl
+    grep -v "^Bridge" | dnl
+    [sed -e 's/\([-][-][-a-zA-Z0-9]\+\)[ ]\+[!]/! \1/g'] dnl
+])
+
 m4_define([EBTABLES_LIST_RULES], [
-    NS_CHECK([ebtables --concurrent -t $1 -L $2 | TRIM_WHITESPACE | grep -v "^Bridge"], [$3], [$4], [$5], [$6], [$7])
+    dnl ebtables commit 5f508b76a0ce change list output for inversion.
+    m4_ifdef([TESTING_FIREWALL_OFFLINE_CMD], [], [
+        NS_CHECK([PIPESTATUS0([ebtables --concurrent -t $1 -L $2], [EBTABLES_LIST_RULES_NORMALIZE])],
+                 [$3], [m4_strip([$4])], [m4_strip([$5])], [$6], [$7])
+    ])
+])
+
+m4_define([IPTABLES_LIST_RULES_NORMALIZE], [dnl
+    TRIM_WHITESPACE | dnl
+    tail -n +3 dnl
+])
+
+m4_define([IPTABLES_LIST_RULES_ALWAYS], [
+    m4_ifdef([TESTING_FIREWALL_OFFLINE_CMD], [], [
+        NS_CHECK([PIPESTATUS0([$IPTABLES -w -n -t $1 -L $2], [IPTABLES_LIST_RULES_NORMALIZE])],
+                 [$3], [m4_strip([$4])], [m4_strip([$5])], [$6], [$7])
+    ])
 ])
 
 m4_define([IPTABLES_LIST_RULES], [
-    NS_CHECK([iptables -w -n -t $1 -L $2 | TRIM_WHITESPACE | tail -n +3], [$3], [$4], [$5], [$6], [$7])
+    m4_if(iptables, FIREWALL_BACKEND, [
+        IPTABLES_LIST_RULES_ALWAYS([$1], [$2], [$3], [$4], [$5], [$6], [$7])
+    ])
+])
+
+m4_define([IP6TABLES_LIST_RULES_NORMALIZE], [dnl
+    TRIM_WHITESPACE | dnl
+    tail -n +3 dnl
+])
+
+m4_define([IP6TABLES_LIST_RULES_ALWAYS], [
+    m4_ifdef([TESTING_FIREWALL_OFFLINE_CMD], [], [
+        IF_HOST_SUPPORTS_IP6TABLES([
+            NS_CHECK([PIPESTATUS0([$IP6TABLES -w -n -t $1 -L $2], [IP6TABLES_LIST_RULES_NORMALIZE])],
+                     [$3], [m4_strip([$4])], [m4_strip([$5])], [$6], [$7])
+        ])
+    ])
 ])
 
 m4_define([IP6TABLES_LIST_RULES], [
-    NS_CHECK([ip6tables -w -n -t $1 -L $2 | TRIM_WHITESPACE | tail -n +3], [$3], [$4], [$5], [$6], [$7])
+    m4_if(iptables, FIREWALL_BACKEND, [
+        IP6TABLES_LIST_RULES_ALWAYS([$1], [$2], [$3], [$4], [$5], [$6], [$7])
+    ])
+])
+
+m4_define([NFT_LIST_RULES_NORMALIZE], [dnl
+    TRIM_WHITESPACE | dnl
+    dnl nftables commit 6dd848339444 change list output to show "meta mark"
+    dnl instead of just "mark".
+    sed -e 's/meta mark/mark/g'dnl
+        -e '/type.*hook.*priority.*policy.*/d'dnl
+        dnl tranform ct state { established,related } to ct state established,related
+        -e '/ct \(state\|status\)/{s/\(ct \(state\|status\)\) {/\1/g; s/ }//; s/\(@<:@a-z@:>@*\), /\1,/g;}' dnl
+])
+
+m4_define([NFT_LIST_RULES_ALWAYS], [
+    m4_ifdef([TESTING_FIREWALL_OFFLINE_CMD], [], [
+        NS_CHECK([PIPESTATUS0([nft $NFT_NUMERIC_ARGS list chain $1 firewalld $2], [NFT_LIST_RULES_NORMALIZE])],
+                 [$3], [m4_strip([$4])], [m4_strip([$5])], [$6], [$7])
+    ])
 ])
 
 m4_define([NFT_LIST_RULES], [
-    NS_CHECK([nft -nn list chain $1 firewalld $2 | TRIM_WHITESPACE], [$3], [$4], [$5], [$6], [$7])
+    m4_if(nftables, FIREWALL_BACKEND, [
+        NFT_LIST_RULES_ALWAYS([$1], [$2], [$3], [$4], [$5], [$6], [$7])
+    ])
+])
+
+m4_define([IPSET_LIST_SET_NORMALIZE], [dnl
+    TRIM_WHITESPACE |dnl
+    grep -v "^\(Revision\|Header\|Size\|References\|Number\)" |dnl
+    awk 'NR <= 3; NR > 3 {print | "sort"}' dnl
 ])
 
 m4_define([IPSET_LIST_SET], [
-    NS_CHECK([ipset list $1 | TRIM_WHITESPACE |dnl
-              grep -v "^\(Revision\|Header\|Size\|References\|Number\)" |dnl
-              awk 'NR <= 3; NR > 3 {print | "sort"}'],
-             [$2], [$3], [$4], [$5], [$6])
+    m4_ifdef([TESTING_FIREWALL_OFFLINE_CMD], [], [
+        NS_CHECK([PIPESTATUS0([ipset list $1], [IPSET_LIST_SET_NORMALIZE])],
+                 [$2], [m4_strip([$3])], [m4_strip([$4])], [$5], [$6])
+    ])
+])
+
+m4_define([NFT_LIST_SET_NORMALIZE], [dnl
+    TRIM_WHITESPACE dnl
+])
+
+m4_define([NFT_LIST_SET_ALWAYS], [
+    m4_ifdef([TESTING_FIREWALL_OFFLINE_CMD], [], [
+        NS_CHECK([PIPESTATUS0([nft $NFT_NUMERIC_ARGS list set inet firewalld $1], [NFT_LIST_SET_NORMALIZE])],
+                 [$2], [m4_strip([$3])], [m4_strip([$4])], [$5], [$6])
+    ])
 ])
 
 m4_define([NFT_LIST_SET], [
-    NS_CHECK([nft -nn list set inet firewalld $1 | TRIM_WHITESPACE], [$2], [$3], [$4], [$5], [$6])
+    m4_if(nftables, FIREWALL_BACKEND, [
+        NFT_LIST_SET_ALWAYS([$1], [$2], [$3], [$4], [$5], [$6])
+    ])
+])
+
+m4_define([DBUS_INTROSPECT], [
+    AT_SKIP_IF([! NS_CMD([which gdbus >/dev/null 2>&1])])
+    AT_SKIP_IF([! NS_CMD([which xmllint >/dev/null 2>&1])])
+    NS_CHECK([PIPESTATUS0([gdbus introspect --xml --system --dest=org.fedoraproject.FirewallD1 dnl
+                           m4_ifblank([$1], [--object-path /org/fedoraproject/FirewallD1],
+                                            [--object-path /org/fedoraproject/FirewallD1/$1])], dnl
+                          [m4_ifnblank([$2], [xmllint --xpath '$2' - |]) xmllint --c14n - | TRIM_WHITESPACE])],
+             [$3], [m4_strip([$4])], [m4_strip([$5])], [$6], [$7])
+])
+
+m4_define([DBUS_CHECK_NORMALIZE], [dnl
+    [sed -e 's/^({//' -e 's/},)$//' -e 's/>,/>\n/g'] | dnl truncate dictionary output
+    TRIM_WHITESPACE | dnl
+    sort dnl sort dictionaries by keys
 ])
 
 m4_define([DBUS_CHECK], [
-    NS_CHECK([dbus-send --system --print-reply --dest=org.fedoraproject.FirewallD1 dnl
-              /org/fedoraproject/FirewallD1/$1 org.fedoraproject.FirewallD1.$2 $3],
-             [$4], [$5], [$6], [$7], [$8])
+    AT_SKIP_IF([! NS_CMD([which gdbus >/dev/null 2>&1])])
+    NS_CHECK([PIPESTATUS0([gdbus call --system --dest=org.fedoraproject.FirewallD1 dnl
+                           m4_ifblank([$1], [--object-path /org/fedoraproject/FirewallD1],
+                                            [--object-path /org/fedoraproject/FirewallD1/$1]) dnl
+                           --method org.fedoraproject.FirewallD1.$2 $3],
+                          [DBUS_CHECK_NORMALIZE])],
+             [$4], [m4_strip([$5])], [m4_strip([$6])], [$7], [$8])
 ])
 
 m4_define([DBUS_GETALL_NORMALIZE], dnl
@@ -267,7 +475,7 @@ m4_define([DBUS_GETALL], [
               /org/fedoraproject/FirewallD1/$1 dnl
               org.freedesktop.DBus.Properties.GetAll string:"org.fedoraproject.FirewallD1.$2" dnl
               | TRIM_WHITESPACE | DBUS_GETALL_NORMALIZE],
-             [$3], [$4], [$5], [$6], [$7])
+             [$3], [m4_strip([$4])], [m4_strip([$5])], [$6], [$7])
 ])
 
 m4_define([DBUS_GET], [
@@ -275,7 +483,7 @@ m4_define([DBUS_GET], [
               /org/fedoraproject/FirewallD1/$1 dnl
               org.freedesktop.DBus.Properties.Get string:"org.fedoraproject.FirewallD1.$2" $3 dnl
               | tail -n +2 | TRIM_WHITESPACE],
-             [$4], [$5], [$6], [$7], [$8])
+             [$4], [m4_strip([$5])], [m4_strip([$6])], [$7], [$8])
 ])
 
 m4_define([DBUS_SET], [
@@ -285,14 +493,23 @@ m4_define([DBUS_SET], [
              [$4], [$5], [$6], [$7], [$8])
 ])
 
-m4_define([RANDOM_NUMBER], [m4_eval(m4_esyscmd([bash -c 'echo $RANDOM']))])
-
 m4_define([CHECK_IPSET], [
     m4_if(nftables, FIREWALL_BACKEND, [
         dnl If our nft binary has buggy flush set, then skip the test
         NS_CHECK([nft add table inet firewalld_check_ipset])
         NS_CHECK([nft add set inet firewalld_check_ipset foobar { type ipv4_addr \; }])
         AT_SKIP_IF([! NS_CMD([nft flush set inet firewalld_check_ipset foobar >/dev/null 2>&1])])
+        dnl If nft set has has no timeout support, then skip the test
+        AT_SKIP_IF([! NS_CMD([nft add set inet firewalld_check_ipset foobar_timeout { type ipv4_addr \; timeout 600s \; } >/dev/null 2>&1])])
+        dnl If nft set has has no size support, then skip the test
+        AT_SKIP_IF([! NS_CMD([nft add set inet firewalld_check_ipset foobar_size { type ipv4_addr \; size 100000 \; } >/dev/null 2>&1])])
+        AT_SKIP_IF([! NS_CMD([nft add set inet firewalld_check_ipset foobar_timeout_size { type ipv4_addr \; timeout 600s \; size 100000 \; } >/dev/null 2>&1])])
+
+        dnl If nft set doesn't allow interval + concat, then skip the test
+        AT_SKIP_IF([! NS_CMD([nft add set inet firewalld_check_ipset foobar_interval_concat { type ipv4_addr . inet_service \; flags interval \; } >/dev/null 2>&1])])
+        dnl use JSON to verify a JSON parser bug is also fixed
+        AT_SKIP_IF([! NS_CMD([[nft -j '{"nftables": [{"add": {"element": {"family": "inet", "table": "firewalld_check_ipset", "name": "foobar_interval_concat", "elem": [{"concat": [{"prefix": {"addr": "10.10.10.0", "len": 24}}, {"range": ["1234", "2000"]}]}]}}}]}' >/dev/null 2>&1]])])
+
         NS_CHECK([nft delete table inet firewalld_check_ipset])
     ])
 ])
@@ -311,13 +528,8 @@ m4_define([CHECK_NAT_COEXISTENCE], [
     m4_if(nftables, FIREWALL_BACKEND, [
         KERNEL_MAJOR=`uname -r | cut -d. -f1`
         KERNEL_MINOR=`uname -r | cut -d. -f2`
-        if test ${KERNEL_MAJOR} -eq 4 && test ${KERNEL_MINOR} -ge 16 || test ${KERNEL_MAJOR} -gt 4; then
-            dnl Only check >=4.16 kernels. Previous versions did not explicitly
-            dnl deny it, but had undefined behavior.
-            AT_SKIP_IF([! modprobe iptable_nat])
-            AT_SKIP_IF([! NS_CMD([nft add table ip foobar])])
-            AT_SKIP_IF([! NS_CMD([nft add chain ip foobar foobar_chain { type nat hook postrouting priority 100 \; }])])
-            NS_CHECK([nft flush ruleset])
+        if test ${KERNEL_MAJOR} -eq 4 && test ${KERNEL_MINOR} -ge 18 || test ${KERNEL_MAJOR} -gt 4; then
+            :
         else
             AT_SKIP_IF([true])
         fi
@@ -333,14 +545,83 @@ m4_define([CHECK_LOG_AUDIT], [
     ])
 ])
 
-m4_ifnblank(
-    m4_esyscmd([
-        KERNEL_MAJOR=`uname -r | cut -d. -f1`
-        KERNEL_MINOR=`uname -r | cut -d. -f2`
-        if test ${KERNEL_MAJOR} -eq 4 && test ${KERNEL_MINOR} -ge 10 || test ${KERNEL_MAJOR} -gt 4; then
-            echo -n "yes"
+m4_define([CHECK_NFT_CT_HELPER], [
+    m4_if(nftables, FIREWALL_BACKEND, [
+        NS_CHECK([nft add table inet firewalld_check_ct_helper])
+        AT_SKIP_IF([! NS_CMD([nft add ct helper inet firewalld helper-ftp-tcp { type \"ftp\" protocol tcp \; } >/dev/null 2>&1])])
+        NS_CHECK([nft delete table inet firewalld_check_ct_helper])
+    ])
+])
+
+m4_define([CHECK_MODULE_PROTO_GRE], [
+    AT_SKIP_IF([! NS_CMD([modinfo nf_conntrack_proto_gre])])
+])
+
+m4_define([IF_HOST_SUPPORTS_NFT_FIB], [
+    KERNEL_MAJOR=`uname -r | cut -d. -f1`
+    KERNEL_MINOR=`uname -r | cut -d. -f2`
+    if test ${KERNEL_MAJOR} -eq 4 && test ${KERNEL_MINOR} -ge 10 || test ${KERNEL_MAJOR} -gt 4; then
+        :
+        $1
+    else
+        :
+        $2
+    fi
+])
+
+m4_define([IF_HOST_SUPPORTS_IP6TABLES], [
+    if $IP6TABLES -L >/dev/null 2>&1; then
+        :
+        $1
+    else
+        :
+        $2
+    fi
+])
+
+m4_define([IF_HOST_SUPPORTS_IPV6], [
+    if sysctl -a |grep -F "net.ipv6" >/dev/null 2>&1; then
+        :
+        $1
+    else
+        :
+        $2
+    fi
+])
+
+m4_define([IF_HOST_SUPPORTS_IPV6_RULES], [
+    m4_ifdef([TESTING_FIREWALL_OFFLINE_CMD], [$1], [
+    m4_if(nftables, FIREWALL_BACKEND, [$1], [
+    IF_HOST_SUPPORTS_IP6TABLES([$1], [$2])
+    ])])
+])
+
+m4_define([NMCLI_CHECK], [
+    AT_SKIP_IF([! NS_CMD([nmcli connection show >/dev/null 2>&1])])
+    NS_CHECK([PIPESTATUS0([nmcli $1], [TRIM_WHITESPACE])],
+             [$2], [m4_strip([$3])], [m4_strip([$4])], [$5], [$6])
+])
+
+m4_define([IF_HOST_SUPPORTS_NFT_RULE_INDEX], [
+    m4_if(nftables, FIREWALL_BACKEND, [
+        AT_DATA([./nft_rule_index.nft], [
+            add table inet firewalld_check_rule_index
+            add chain inet firewalld_check_rule_index foobar { type filter hook input priority 0 ; }
+            add rule inet firewalld_check_rule_index foobar tcp dport 1234 accept
+            add rule inet firewalld_check_rule_index foobar accept
+            insert rule inet firewalld_check_rule_index foobar index 1 udp dport 4321 accept
+])
+        NS_CHECK([nft -f ./nft_rule_index.nft])
+
+        if test "$( NS_CMD([nft list chain inet firewalld_check_rule_index foobar | head -n 5 |tail -n 1 | TRIM_WHITESPACE]) )" = "udp dport 4321 accept"; then
+            :
+            $1
+        else
+            :
+            $2
         fi
-    ]),
-    [m4_define([HOST_SUPPORTS_NFT_FIB], [yes])],
-    [m4_define([HOST_SUPPORTS_NFT_FIB], [no])]
-)
+
+        NS_CHECK([rm ./nft_rule_index.nft])
+        NS_CHECK([nft delete table inet firewalld_check_rule_index])
+    ], [$1])
+])

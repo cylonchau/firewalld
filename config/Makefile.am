@@ -22,7 +22,7 @@ polkit1_action_FILES = org.fedoraproject.FirewallD1.server.policy.in \
 polkit1_actiondir = $(datadir)/polkit-1/actions
 polkit1_action_DATA = $(polkit1_action_FILES:.in=)
 
-dbus_policydir = $(sysconfdir)/dbus-1/system.d
+dbus_policydir = $(datadir)/dbus-1/system.d
 dist_dbus_policy_DATA = FirewallD.conf
 
 gsettings_in_file = org.fedoraproject.FirewallConfig.gschema.xml.in
@@ -35,6 +35,7 @@ BUILT_SOURCES = \
 	$(polkit1_action_DATA) \
 	$(gsettings_SCHEMAS) \
 	firewalld-sysctls.conf \
+	firewalld.logrotate \
 	firewalld.service
 
 @INTLTOOL_DESKTOP_RULE@
@@ -44,7 +45,7 @@ BUILT_SOURCES = \
 
 all: $(desktop_DATA) $(appdata_DATA) $(applet_desktop_DATA) $(polkit1_action_DATA) $(gsettings_SCHEMAS)
 
-CLEANFILES = *~ *\# .\#* firewalld.service firewalld-sysctls.conf
+CLEANFILES = *~ *\# .\#* firewalld.service firewalld-sysctls.conf firewalld.logrotate
 
 DISTCLEANFILES = \
 	$(desktop_DATA) \
@@ -113,6 +114,7 @@ CONFIG_FILES = \
 	icmptypes/unknown-header-type.xml \
 	icmptypes/unknown-option.xml \
 	ipsets/README \
+	policies/allow-host-ipv6.xml \
 	services/amanda-client.xml \
 	services/amanda-k5-client.xml \
 	services/amqp.xml \
@@ -121,22 +123,26 @@ CONFIG_FILES = \
 	services/audit.xml \
 	services/bacula-client.xml \
 	services/bacula.xml \
+	services/bb.xml \
 	services/bgp.xml \
 	services/bitcoin-rpc.xml \
 	services/bitcoin-testnet-rpc.xml \
 	services/bitcoin-testnet.xml \
 	services/bitcoin.xml \
+	services/bittorrent-lsd.xml \
 	services/lightning-network.xml \
 	services/ceph-mon.xml \
 	services/ceph.xml \
 	services/cfengine.xml \
 	services/cockpit.xml \
+	services/collectd.xml \
 	services/condor-collector.xml \
 	services/ctdb.xml \
 	services/dhcpv6-client.xml \
 	services/dhcpv6.xml \
 	services/dhcp.xml \
 	services/distcc.xml \
+	services/dns-over-tls.xml \
 	services/dns.xml \
 	services/docker-registry.xml \
 	services/docker-swarm.xml \
@@ -145,6 +151,9 @@ CONFIG_FILES = \
 	services/etcd-client.xml \
 	services/etcd-server.xml \
 	services/finger.xml \
+	services/foreman.xml \
+	services/foreman-proxy.xml \
+	services/freeipa-4.xml \
 	services/freeipa-ldaps.xml \
 	services/freeipa-ldap.xml \
 	services/freeipa-replication.xml \
@@ -153,6 +162,7 @@ CONFIG_FILES = \
 	services/ganglia-client.xml \
 	services/ganglia-master.xml \
 	services/git.xml \
+	services/grafana.xml \
 	services/gre.xml \
 	services/high-availability.xml \
 	services/https.xml \
@@ -168,12 +178,14 @@ CONFIG_FILES = \
 	services/isns.xml \
 	services/jenkins.xml \
 	services/kadmin.xml \
+	services/kdeconnect.xml \
 	services/kerberos.xml \
 	services/kibana.xml \
 	services/klogin.xml \
 	services/kpasswd.xml \
 	services/kprop.xml \
 	services/kshell.xml \
+	services/kube-apiserver.xml \
 	services/ldaps.xml \
 	services/ldap.xml \
 	services/libvirt-tls.xml \
@@ -182,6 +194,7 @@ CONFIG_FILES = \
 	services/managesieve.xml \
 	services/matrix.xml \
 	services/mdns.xml \
+	services/memcache.xml \
 	services/minidlna.xml \
 	services/mongodb.xml \
 	services/mosh.xml \
@@ -192,6 +205,7 @@ CONFIG_FILES = \
 	services/ms-wbt.xml \
 	services/murmur.xml \
 	services/mysql.xml \
+	services/nbd.xml \
 	services/nfs.xml \
 	services/nfs3.xml \
 	services/nmea-0183.xml \
@@ -211,15 +225,20 @@ CONFIG_FILES = \
 	services/pop3.xml \
 	services/postgresql.xml \
 	services/privoxy.xml \
+	services/prometheus.xml \
 	services/proxy-dhcp.xml \
 	services/ptp.xml \
 	services/pulseaudio.xml \
 	services/puppetmaster.xml \
 	services/quassel.xml \
 	services/radius.xml \
+	services/rdp.xml \
+	services/redis-sentinel.xml \
 	services/redis.xml \
 	services/RH-Satellite-6.xml \
+	services/RH-Satellite-6-capsule.xml \
 	services/rpc-bind.xml \
+	services/rquotad.xml \
 	services/rsh.xml \
 	services/rsyncd.xml \
 	services/rtsp.xml \
@@ -237,7 +256,9 @@ CONFIG_FILES = \
 	services/snmptrap.xml \
 	services/snmp.xml \
 	services/spideroak-lansync.xml \
+	services/spotify-sync.xml \
 	services/squid.xml \
+	services/ssdp.xml \
 	services/ssh.xml \
 	services/steam-streaming.xml \
 	services/svdrp.xml \
@@ -248,8 +269,10 @@ CONFIG_FILES = \
 	services/syslog-tls.xml \
 	services/syslog.xml \
 	services/telnet.xml \
+	services/tentacle.xml \
 	services/tftp-client.xml \
 	services/tftp.xml \
+	services/tile38.xml \
 	services/tinc.xml \
 	services/tor-socks.xml \
 	services/transmission-client.xml \
@@ -286,6 +309,7 @@ EXTRA_DIST = \
 	$(CONFIG_FILES) \
 	lockdown-whitelist.xml.in \
 	firewalld.init \
+	firewalld.logrotate.in \
 	firewalld-sysctls.conf.in \
 	firewalld.service.in \
 	firewalld.sysconfig \
@@ -296,6 +320,9 @@ UNINSTALL_TARGETS = uninstall-config
 
 INSTALL_TARGETS += install-modprobe.d
 UNINSTALL_TARGETS += uninstall-modprobe.d
+
+INSTALL_TARGETS += install-logrotate.d
+UNINSTALL_TARGETS += uninstall-logrotate.d
 
 if USE_SYSTEMD
 INSTALL_TARGETS += install-service
@@ -327,6 +354,9 @@ firewalld.service: firewalld.service.in
 	$(edit) $< >$@
 
 firewalld-sysctls.conf: firewalld-sysctls.conf.in
+	$(edit) $< >$@
+
+firewalld.logrotate: firewalld.logrotate.in
 	$(edit) $< >$@
 
 install-sysconfig:
@@ -369,29 +399,42 @@ uninstall-modprobe.d:
 	rm -f $(DESTDIR)$(sysconfdir)/modprobe.d/firewalld-sysctls.conf
 	rmdir $(DESTDIR)$(sysconfdir)/modprobe.d || :
 
+install-logrotate.d:
+	$(MKDIR_P) $(DESTDIR)$(sysconfdir)/logrotate.d
+	$(INSTALL_DATA) firewalld.logrotate $(DESTDIR)$(sysconfdir)/logrotate.d/firewalld
+
+uninstall-logrotate.d:
+	rm -f $(DESTDIR)$(sysconfdir)/logrotate.d/firewalld
+	rmdir $(DESTDIR)$(sysconfdir)/logrotate.d || :
+
 install-config:
 	$(MKDIR_P) $(DESTDIR)$(sconfdir)
 	$(MKDIR_P) $(DESTDIR)$(sconfdir)/icmptypes
 	$(MKDIR_P) $(DESTDIR)$(sconfdir)/ipsets
+	$(MKDIR_P) $(DESTDIR)$(sconfdir)/policies
 	$(MKDIR_P) $(DESTDIR)$(sconfdir)/services
 	$(MKDIR_P) $(DESTDIR)$(sconfdir)/zones
 	$(MKDIR_P) $(DESTDIR)$(sconfdir)/helpers
 	$(MKDIR_P) $(DESTDIR)$(prefixlibdir)
-	cp -r icmptypes $(DESTDIR)$(prefixlibdir)
-	cp -r ipsets $(DESTDIR)$(prefixlibdir)
-	cp -r services $(DESTDIR)$(prefixlibdir)
-	cp -r zones $(DESTDIR)$(prefixlibdir)
-	cp -r helpers $(DESTDIR)$(prefixlibdir)
+	cp -r $(srcdir)/icmptypes $(DESTDIR)$(prefixlibdir)
+	cp -r $(srcdir)/ipsets $(DESTDIR)$(prefixlibdir)
+	cp -r $(srcdir)/policies $(DESTDIR)$(prefixlibdir)
+	cp -r $(srcdir)/services $(DESTDIR)$(prefixlibdir)
+	cp -r $(srcdir)/zones $(DESTDIR)$(prefixlibdir)
+	cp -r $(srcdir)/helpers $(DESTDIR)$(prefixlibdir)
 
 uninstall-config:
 	rmdir $(DESTDIR)$(sconfdir)/icmptypes
 	rmdir $(DESTDIR)$(sconfdir)/ipsets
+	rmdir $(DESTDIR)$(sconfdir)/policies
 	rmdir $(DESTDIR)$(sconfdir)/services
 	rmdir $(DESTDIR)$(sconfdir)/zones
 	rm -f $(DESTDIR)$(prefixlibdir)/icmptypes/*
 	rmdir $(DESTDIR)$(prefixlibdir)/icmptypes
 	rm -f $(DESTDIR)$(prefixlibdir)/ipsets/*
 	rmdir $(DESTDIR)$(prefixlibdir)/ipsets
+	rm -f $(DESTDIR)$(prefixlibdir)/policies/*
+	rmdir $(DESTDIR)$(prefixlibdir)/policies
 	rm -f $(DESTDIR)$(prefixlibdir)/services/*
 	rmdir $(DESTDIR)$(prefixlibdir)/services
 	rm -f $(DESTDIR)$(prefixlibdir)/zones/*
@@ -411,7 +454,6 @@ install-data-hook:
 		$(LN_S) org.fedoraproject.FirewallD1.server.policy.choice org.fedoraproject.FirewallD1.policy
 
 # make sure CONFIG_FILES are also in POTFILES
-# xml schema check
 check-local:
 	@for file in $(filter-out helpers/% %/README,$(CONFIG_FILES)); do \
 		if ! grep "$${file}" ${top_srcdir}/po/POTFILES.in > /dev/null; then \

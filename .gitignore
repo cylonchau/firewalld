@@ -8,6 +8,7 @@
 /config/firewall-config.appdata.xml
 /config/firewall-config.desktop
 /config/firewalld.service
+/config/firewalld.logrotate
 /config/firewalld-sysctls.conf
 /config/lockdown-whitelist.xml
 /config/org.fedoraproject.FirewallConfig.gschema.valid
@@ -30,6 +31,7 @@
 /doxygen.conf
 /firewalld-*.tar.bz2
 /install-sh
+/m4/intltool.m4
 /missing
 /po/*
 /src/firewall/config/__init__.py
@@ -39,10 +41,12 @@
 /src/firewall-offline-cmd
 /src/firewalld
 /src/tests/atconfig
+/src/tests/atlocal
+/src/tests/integration/testsuite
 /src/tests/package.m4
 /src/tests/testsuite*
 Makefile
 Makefile.in
 !/po/*.po
+!/po/firewalld.weblate.pot
 !/po/POTFILES.in
-.idea

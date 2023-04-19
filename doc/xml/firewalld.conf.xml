@@ -83,7 +83,7 @@
 	<term><option>MinimalMark</option></term>
         <listitem>
 	  <para>
-            For some firewall settings several rules are needed in different tables to be able to handle packets in the correct way. To achieve that these packets are marked using the MARK target <citerefentry><refentrytitle>iptables</refentrytitle><manvolnum>8</manvolnum></citerefentry> and <citerefentry><refentrytitle>ip6tables</refentrytitle><manvolnum>8</manvolnum></citerefentry>. With the MinimalMark option a block of marks can be reserved for private use; only marks over this value are used. The default MinimalMark value is 100.
+        Deprecated. This option is ignored and no longer used. Marks are no longer used internally.
 	  </para>
 	</listitem>
       </varlistentry>
@@ -139,7 +139,7 @@
 	<term><option>AutomaticHelpers</option></term>
         <listitem>
 	  <para>
-	    For the secure use of iptables and connection tracking helpers it is recommended to turn AutomaticHelpers off. But this might have side effects on other services using the netfilter helpers as the sysctl setting in /proc/sys/net/netfilter/nf_conntrack_helper will be changed. With the system setting, the default value set in the kernel or with sysctl will be used. Possible values are: <replaceable>yes</replaceable>, <replaceable>no</replaceable> and <replaceable>system</replaceable>. The default setting is <replaceable>system</replaceable>.
+        Deprecated. This option is ignored and no longer used.
 	  </para>
 	</listitem>
       </varlistentry>
@@ -156,6 +156,50 @@
                 ip6tables, and ebtables backends.
                 </para>
 	        </listitem>
+        </varlistentry>
+
+        <varlistentry>
+            <term><option>FlushAllOnReload</option></term>
+            <listitem>
+                <para>
+                Flush all runtime rules on a reload. In previous releases some
+                runtime configuration was retained during a reload, namely;
+                interface to zone assignment, and direct rules. This was
+                confusing to users. To get the old behavior set this to "no".
+                Defaults to "yes".
+                </para>
+            </listitem>
+        </varlistentry>
+
+        <varlistentry>
+            <term><option>RFC3964_IPv4</option></term>
+            <listitem>
+                <para>
+                As per RFC 3964, filter IPv6 traffic with 6to4 destination
+                addresses that correspond to IPv4 addresses that should not
+                be routed over the public internet.
+                Defaults to "yes".
+                </para>
+            </listitem>
+        </varlistentry>
+
+        <varlistentry>
+            <term><option>AllowZoneDrifting</option></term>
+            <listitem>
+                <para>
+                Older versions of firewalld had undocumented behavior known
+                as "zone drifting". This allowed packets to ingress multiple
+                zones - this is a violation of zone based firewalls. However,
+                some users rely on this behavior to have a "catch-all" zone,
+                e.g. the default zone. You can enable this if you desire such
+                behavior. It's disabled by default for security reasons.
+                Note: If "yes" packets will only drift from source based zones
+                to interface based zones (including the default zone). Packets
+                never drift from interface based zones to other interfaces
+                based zones (including the default zone).
+                Valid values; "yes", "no". Defaults to "no".
+                </para>
+            </listitem>
         </varlistentry>
 
     </variablelist>

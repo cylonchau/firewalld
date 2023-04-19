@@ -13,8 +13,6 @@ DISTCLEANFILES = config.log intltool-*
 
 DISTCLEANDIRS = autom4te.cache ${PACKAGE_NAME}-*
 
-all: report
-
 tag:
 	@spec_ver=`awk '/Version:/ { print $$2}' ${PACKAGE_NAME}.spec`; \
 	if test "$$spec_ver" != "${PACKAGE_VERSION}"; then \
@@ -78,19 +76,16 @@ dist-check:
 		exit 1; \
 	fi
 
+check-container check-integration installcheck-integration:
+	$(MAKE) -C src/tests $@
+
+.PHONY: check-container check-integration installcheck-integration
+
 update-docs:
 	$(MAKE) -C doc/xml
 
 clean-docs:
 	$(MAKE) -C doc/xml clean
-
-pull-translations:
-	zanata-cli -B pull
-
-push-translations:
-	zanata-cli -B push
-
-update-translations: pull-translations update-po push-translations 
 
 archive: dist-check $(desktop_DATA) tag dist
 
@@ -112,6 +107,20 @@ test-srpm: dist
 update-po:
 	ls $(top_srcdir)/po/*.po | sed 's/.*\/po\///;s/.po//' > $(top_srcdir)/po/LINGUAS
 	$(MAKE) -C po update-po ${PACKAGE_NAME}.pot
+	cp po/${PACKAGE_NAME}.pot po/${PACKAGE_NAME}.weblate.pot
+
+# This merges translations from the upstream master branch.
+# It's only meant to be used from the stable branches. Translations
+# contributions are only done against master.
+merge-po: update-po
+	git fetch -q https://github.com/firewalld/firewalld master; \
+	for po in $(top_srcdir)/po/*.po; do \
+		mv $${po} $${po}.old; \
+		git checkout -q FETCH_HEAD $${po}; \
+		msgcat --use-first -o $${po}.merged $${po} $${po}.old; \
+		mv $${po}.merged $${po}; \
+		git add $${po}; \
+	done
 
 clean-po:
 	@for cat in `cat ${top_srcdir}/po/LINGUAS`; do \

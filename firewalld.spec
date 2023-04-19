@@ -5,13 +5,13 @@
 %endif
 %endif
 
-Summary: A Do not use polkit authentication firewall daemon with D-Bus interface providing a dynamic firewall
+Summary: A firewall daemon with D-Bus interface providing a dynamic firewall
 Name: firewalld
-Version: 0.6.3
-Release: 4%{?dist}
+Version: 0.9.3
+Release: 1%{?dist}
 URL:     http://firewalld.org
 License: GPLv2+
-Source0: firewalld.tar.gz
+Source0: https://github.com/firewalld/firewalld/archive/v%{version}.tar.gz#/%{name}-%{version}.tar.gz
 BuildArch: noarch
 BuildRequires: autoconf
 BuildRequires: automake
@@ -25,12 +25,10 @@ BuildRequires: docbook-style-xsl
 BuildRequires: libxslt
 BuildRequires: python2-devel
 BuildRequires: iptables, ebtables, ipset
-BuildRequires: nftables
 %if 0%{?with_python3}
 BuildRequires:  python3-devel
 %endif #0%{?with_python3}
 Requires: iptables, ebtables, ipset
-Requires: nftables
 Requires(post): systemd
 Requires(preun): systemd
 Requires(postun): systemd
@@ -53,6 +51,7 @@ Requires: dbus-python
 Requires: python-slip-dbus
 Requires: python-decorator
 Requires: pygobject3-base
+Requires: python-nftables
 
 %description -n python-firewall
 Python2 bindings for firewalld.
@@ -63,6 +62,7 @@ Summary: Python3 bindings for firewalld
 Requires: python3-dbus
 Requires: python3-slip-dbus
 Requires: python3-decorator
+Requires: python3-nftables
 %if (0%{?fedora} >= 23 || 0%{?rhel} >= 8)
 Requires: python3-gobject-base
 %else
@@ -127,17 +127,16 @@ cp -a . %{py3dir}
 %endif #0%{?with_python3}
 
 %build
+%configure --enable-sysconfig --enable-rpmmacros
 %if 0%{?use_python3}
-%configure --enable-sysconfig --enable-rpmmacros PYTHON="%{__python3} %{py3_shbang_opts}"
 make -C src %{?_smp_mflags}
 %else
-%configure --enable-sysconfig --enable-rpmmacros PYTHON="%{__python2} %{py2_shbang_opts}"
 make %{?_smp_mflags}
 %endif
 
 %if 0%{?with_python3}
 pushd %{py3dir}
-%configure --enable-sysconfig --enable-rpmmacros PYTHON="%{__python3} %{py3_shbang_opts}"
+%configure --enable-sysconfig --enable-rpmmacros PYTHON=%{__python3}
 %if 0%{?use_python3}
 make %{?_smp_mflags}
 %else
@@ -179,7 +178,37 @@ desktop-file-install --delete-original \
 %systemd_preun firewalld.service
 
 %postun
-%systemd_postun_with_restart firewalld.service
+%systemd_postun_with_restart firewalld.service 
+
+
+%post -n firewall-applet
+/bin/touch --no-create %{_datadir}/icons/hicolor &>/dev/null || :
+
+%postun -n firewall-applet
+if [ $1 -eq 0 ] ; then
+    /bin/touch --no-create %{_datadir}/icons/hicolor &>/dev/null
+    /usr/bin/gtk-update-icon-cache %{_datadir}/icons/hicolor &>/dev/null || :
+    /usr/bin/glib-compile-schemas %{_datadir}/glib-2.0/schemas &> /dev/null || :
+fi
+
+%posttrans -n firewall-applet
+/usr/bin/gtk-update-icon-cache %{_datadir}/icons/hicolor &>/dev/null || :
+/usr/bin/glib-compile-schemas %{_datadir}/glib-2.0/schemas &> /dev/null || :
+
+
+%post -n firewall-config
+/bin/touch --no-create %{_datadir}/icons/hicolor &>/dev/null || :
+
+%postun -n firewall-config
+if [ $1 -eq 0 ] ; then
+    /bin/touch --no-create %{_datadir}/icons/hicolor &>/dev/null
+    /usr/bin/gtk-update-icon-cache %{_datadir}/icons/hicolor &>/dev/null || :
+    /usr/bin/glib-compile-schemas %{_datadir}/glib-2.0/schemas &> /dev/null || :
+fi
+
+%posttrans -n firewall-config
+/usr/bin/gtk-update-icon-cache %{_datadir}/icons/hicolor &>/dev/null || :
+/usr/bin/glib-compile-schemas %{_datadir}/glib-2.0/schemas &> /dev/null || :
 
 %files -f %{name}.lang
 %doc COPYING README
@@ -188,8 +217,11 @@ desktop-file-install --delete-original \
 %{_bindir}/firewall-offline-cmd
 %dir %{_datadir}/bash-completion/completions
 %{_datadir}/bash-completion/completions/firewall-cmd
+%dir %{_datadir}/zsh/site-functions
+%{_datadir}/zsh/site-functions/_firewalld
 %{_prefix}/lib/firewalld/icmptypes/*.xml
 %{_prefix}/lib/firewalld/ipsets/README
+%{_prefix}/lib/firewalld/policies/*.xml
 %{_prefix}/lib/firewalld/services/*.xml
 %{_prefix}/lib/firewalld/zones/*.xml
 %{_prefix}/lib/firewalld/helpers/*.xml
@@ -199,13 +231,14 @@ desktop-file-install --delete-original \
 %attr(0750,root,root) %dir %{_sysconfdir}/firewalld/helpers
 %attr(0750,root,root) %dir %{_sysconfdir}/firewalld/icmptypes
 %attr(0750,root,root) %dir %{_sysconfdir}/firewalld/ipsets
+%attr(0750,root,root) %dir %{_sysconfdir}/firewalld/policies
 %attr(0750,root,root) %dir %{_sysconfdir}/firewalld/services
 %attr(0750,root,root) %dir %{_sysconfdir}/firewalld/zones
 %defattr(0644,root,root)
 %config(noreplace) %{_sysconfdir}/sysconfig/firewalld
 #%attr(0755,root,root) %{_initrddir}/firewalld
 %{_unitdir}/firewalld.service
-%config(noreplace) %{_sysconfdir}/dbus-1/system.d/FirewallD.conf
+%config(noreplace) %{_datadir}/dbus-1/system.d/FirewallD.conf
 %{_datadir}/polkit-1/actions/org.fedoraproject.FirewallD1.desktop.policy.choice
 %{_datadir}/polkit-1/actions/org.fedoraproject.FirewallD1.server.policy.choice
 %{_datadir}/polkit-1/actions/org.fedoraproject.FirewallD1.policy
@@ -213,6 +246,7 @@ desktop-file-install --delete-original \
 %{_mandir}/man1/firewalld*.1*
 %{_mandir}/man5/firewall*.5*
 %{_sysconfdir}/modprobe.d/firewalld-sysctls.conf
+%{_sysconfdir}/logrotate.d/firewalld
 
 %files -n python-firewall
 %attr(0755,root,root) %dir %{python2_sitelib}/firewall
@@ -250,21 +284,49 @@ desktop-file-install --delete-original \
 %{python3_sitelib}/firewall/server/__pycache__/*.py*
 %endif #0%{?with_python3}
 
+%files -n firewalld-filesystem
+%dir %{_prefix}/lib/firewalld
+%dir %{_prefix}/lib/firewalld/helpers
+%dir %{_prefix}/lib/firewalld/icmptypes
+%dir %{_prefix}/lib/firewalld/ipsets
+%dir %{_prefix}/lib/firewalld/policies
+%dir %{_prefix}/lib/firewalld/services
+%dir %{_prefix}/lib/firewalld/zones
+%{_rpmconfigdir}/macros.d/macros.firewalld
+
+%files -n firewall-applet
+%attr(0755,root,root) %dir %{_sysconfdir}/firewall
+%{_bindir}/firewall-applet
+%defattr(0644,root,root)
+%{_sysconfdir}/xdg/autostart/firewall-applet.desktop
+%{_sysconfdir}/firewall/applet.conf
+%{_datadir}/icons/hicolor/*/apps/firewall-applet*.*
+%{_mandir}/man1/firewall-applet*.1*
+
+%files -n firewall-config
+%{_bindir}/firewall-config
+%defattr(0644,root,root)
+%{_datadir}/firewalld/firewall-config.glade
+%{_datadir}/firewalld/gtk3_chooserbutton.py*
+%{_datadir}/firewalld/gtk3_niceexpander.py*
+%{_datadir}/applications/firewall-config.desktop
+%{_datadir}/metainfo/firewall-config.appdata.xml
+%{_datadir}/icons/hicolor/*/apps/firewall-config*.*
+%{_datadir}/glib-2.0/schemas/org.fedoraproject.FirewallConfig.gschema.xml
+%{_mandir}/man1/firewall-config*.1*
 
 %changelog
-* Thu Oct 11 2018 seal <e@erig.me> - 0.6.3-4
-- bump package to v0.6.3
-- use py{2,3}_shbang_opts for python interpreter
+* Mon Jan 11 2021 Eric Garver <eric@garver.life> - 0.9.3-1
+- bump package to v0.9.3
 
-* Thu Oct 11 2018 Eric Garver <e@erig.me> - 0.6.3-1
-- bump package to v0.6.3
-- use py{2,3}_shbang_opts for python interpreter
+* Mon Jan 04 2021 Eric Garver <eric@garver.life> - 0.9.2-1
+- bump package to v0.9.2
 
-* Wed Sep 19 2018 Eric Garver <e@erig.me> - 0.6.2-1
-- bump package to v0.6.2
+* Thu Oct 01 2020 Eric Garver <eric@garver.life> - 0.9.1-1
+- bump package to v0.9.1
 
-* Thu Aug 09 2018 Eric Garver <e@erig.me> - 0.6.1-1
-- bump package to v0.6.1
+* Wed Sep 02 2020 Eric Garver <eric@garver.life> - 0.9.0-1
+- bump package to v0.9.0
 
 * Fri Apr 20 2018 Eric Garver <e@erig.me> - 0.6.0-1
 - bump package to v0.6.0

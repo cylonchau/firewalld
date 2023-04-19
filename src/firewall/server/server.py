@@ -37,7 +37,7 @@ sys.modules['gobject'] = GObject
 import dbus
 import dbus.service
 import dbus.mainloop.glib
-import slip.dbus
+#import slip.dbus
 
 from firewall import config
 from firewall.core.logger import log
@@ -93,7 +93,8 @@ def run_server(debug_gc=False):
         service = FirewallD(name, config.dbus.DBUS_PATH)
 
         mainloop = GLib.MainLoop()
-        slip.dbus.service.set_mainloop(mainloop)
+        mainloop.run()
+        # slip.dbus.service.set_mainloop(mainloop)
         if debug_gc:
             GLib.timeout_add_seconds(gc_timeout, gc_collect)
 

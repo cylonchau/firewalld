@@ -26,8 +26,8 @@ import os
 
 import dbus
 import dbus.service
-import slip.dbus
-import slip.dbus.service
+#import slip.dbus
+#import slip.dbus.service
 
 from firewall import config
 from firewall.core.base import DEFAULT_ZONE_TARGET
@@ -59,7 +59,7 @@ from firewall.errors import FirewallError
 #
 ############################################################################
 
-class FirewallDConfig(slip.dbus.service.Object):
+class FirewallDConfig(dbus.service.Object):
     """FirewallD main class"""
 
     persistent = True
@@ -694,7 +694,7 @@ class FirewallDConfig(slip.dbus.service.Object):
 
         return dbus.Dictionary(ret, signature="sv")
 
-    
+    #@slip.dbus.polkit.require_auth(config.dbus.PK_ACTION_CONFIG)
     @dbus_service_method(dbus.PROPERTIES_IFACE, in_signature='ssv')
     @dbus_handle_exceptions
     def Set(self, interface_name, property_name, new_value, sender=None):
@@ -787,7 +787,7 @@ class FirewallDConfig(slip.dbus.service.Object):
         log.debug1("config.PropertiesChanged('%s', '%s', '%s')",
                    interface_name, changed_properties, invalidated_properties)
 
-
+    #@slip.dbus.polkit.require_auth(config.dbus.PK_ACTION_INFO)
     @dbus_service_method(dbus.INTROSPECTABLE_IFACE, out_signature='s')
     @dbus_handle_exceptions
     def Introspect(self, sender=None): # pylint: disable=W0613

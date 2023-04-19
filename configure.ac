@@ -8,6 +8,7 @@ m4_define([PKG_RELEASE], m4_bpatsubst(m4_esyscmd([grep "Release:" firewalld.spec
 m4_define([PKG_TAG], m4_format(v%s, PKG_VERSION))
 
 AC_INIT(PKG_NAME,PKG_VERSION)
+AC_CONFIG_MACRO_DIR([m4])
 AC_CONFIG_SRCDIR([src/firewalld.in])
 AC_PREFIX_DEFAULT([/usr])
 
@@ -30,14 +31,23 @@ AM_PATH_PYTHON
 AC_PATH_PROG([XSLTPROC], [xsltproc])
 AC_PATH_PROG([KILL], [kill], [/usr/bin/kill])
 
-AC_PATH_PROG([MODINFO], [modinfo], [/sbin/modinfo])
 AC_PATH_PROG([MODPROBE], [modprobe], [/sbin/modprobe])
 AC_PATH_PROG([RMMOD], [rmmod], [/sbin/rmmod])
 AC_PATH_PROG([SYSCTL], [sysctl], [/sbin/sysctl])
 
 AC_CONFIG_TESTDIR([src/tests])
+AC_PATH_PROGS([PODMAN], [podman docker], [/bin/false])
 
 GLIB_GSETTINGS
+
+#############################################################
+
+AC_ARG_ENABLE([docs],
+    [AS_HELP_STRING([--disable-docs], [Disable building documentation])])
+AM_CONDITIONAL([ENABLE_DOCS], [test x$enable_docs != xno])
+AM_COND_IF([ENABLE_DOCS], [
+    JH_CHECK_XML_CATALOG([http://docbook.sourceforge.net/release/xsl/current/manpages/docbook.xsl], [DocBook XSL Stylesheets])
+])
 
 #############################################################
 
@@ -68,6 +78,11 @@ AC_ARG_WITH([bashcompletiondir],
        AS_HELP_STRING([--with-bashcompletiondir=DIR], [Bash completions directory]),
        [BASHCOMPLETIONDIR=$withval], [BASHCOMPLETIONDIR="${datadir}/bash-completion/completions"])
 AC_SUBST(BASHCOMPLETIONDIR)
+
+AC_ARG_WITH([zshcompletiondir],
+       AS_HELP_STRING([--with-zshcompletiondir=DIR], [Zsh completions directory]),
+       [ZSHCOMPLETIONDIR=$withval], [ZSHCOMPLETIONDIR="${datadir}/zsh/site-functions"])
+AC_SUBST(ZSHCOMPLETIONDIR)
 
 AC_ARG_WITH([ifcfgdir],
        AS_HELP_STRING([--with-ifcfgdir=DIR], [The ifcfg configuration directory]),
@@ -147,16 +162,6 @@ if test "x$IPSET" = "x"; then
 fi
 AC_SUBST(IPSET)
 
-AC_ARG_WITH([nft],
-       AS_HELP_STRING([--with-nft], [Path to nft (nftables) executable]),
-       [NFT=$withval
-       AC_MSG_NOTICE([Using for nft: $NFT])],
-       [AC_PATH_PROG([NFT], [nft], [], [$FW_TOOLS_PATH])])
-if test "x$NFT" = "x"; then
-    AC_MSG_ERROR([nft was not found in $FW_TOOLS_PATH])
-fi
-AC_SUBST(NFT)
-
 #############################################################
 
 AC_SUBST([GETTEXT_PACKAGE], '[PKG_NAME]')
@@ -181,6 +186,7 @@ AC_CONFIG_FILES([Makefile
 		 src/firewall/config/__init__.py
 		 src/Makefile
 		 src/tests/Makefile
+		 src/tests/atlocal
 		 src/icons/Makefile])
 
 m4_foreach([FILE], [[src/firewall-applet],

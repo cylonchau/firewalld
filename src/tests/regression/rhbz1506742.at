@@ -1,4 +1,6 @@
 FWD_START_TEST([ipset with timeout])
+AT_KEYWORDS(ipset rhbz1506742)
+
 CHECK_IPSET
 
 FWD_CHECK([-q --permanent --new-ipset=foobar --type=hash:ip --option=maxelem=1000000 --option=family=inet --option=hashsize=4096 --option=timeout=600])
@@ -18,4 +20,4 @@ FWD_CHECK([-q --ipset=foobar --query-entry=1.2.3.4], 32, ignore, ignore)
 FWD_CHECK([-q --ipset=foobar --remove-entries-from-file=foobar_entries.txt])
 FWD_END_TEST([-e '/Error: IPSET_WITH_TIMEOUT/d' dnl
               -e '/ERROR: IPSET_WITH_TIMEOUT/d' dnl
-			  -e '/WARNING: NOT_ENABLED/d'])
+              -e '/WARNING: NOT_ENABLED/d'])

@@ -25,8 +25,8 @@ sys.modules['gobject'] = GObject
 
 import dbus
 import dbus.service
-import slip.dbus
-import slip.dbus.service
+#import slip.dbus
+#import slip.dbus.service
 
 from firewall import config
 from firewall.dbus_utils import dbus_to_python, \
@@ -45,7 +45,7 @@ from firewall.errors import FirewallError
 #
 ############################################################################
 
-class FirewallDConfigHelper(slip.dbus.service.Object):
+class FirewallDConfigHelper(dbus.service.Object):
     """FirewallD main class"""
 
     persistent = True
@@ -129,7 +129,7 @@ class FirewallDConfigHelper(slip.dbus.service.Object):
             ret[x] = self._get_property(x)
         return dbus.Dictionary(ret, signature="sv")
 
-
+    #@slip.dbus.polkit.require_auth(config.dbus.PK_ACTION_CONFIG)
     @dbus_service_method(dbus.PROPERTIES_IFACE, in_signature='ssv')
     @dbus_handle_exceptions
     def Set(self, interface_name, property_name, new_value, sender=None):
@@ -158,7 +158,7 @@ class FirewallDConfigHelper(slip.dbus.service.Object):
         log.debug1("%s.PropertiesChanged('%s', '%s', '%s')", self._log_prefix,
                    interface_name, changed_properties, invalidated_properties)
 
-
+    #@slip.dbus.polkit.require_auth(config.dbus.PK_ACTION_INFO)
     @dbus_service_method(dbus.INTROSPECTABLE_IFACE, out_signature='s')
     @dbus_handle_exceptions
     def Introspect(self, sender=None): # pylint: disable=W0613
