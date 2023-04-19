@@ -1,0 +1,7 @@
+firewalld without for polkit authentication
+不使用polkit的firewalld版本，适用于CentOS 7， CentOS 8 因改变了 python版本，改版本不适用
+====================
+
+构建方法：  ./build.sh
+产出包在 _output，直接替换系统原生 python-firewalld 包即可
+注：CentOS 6需要安装两个包
